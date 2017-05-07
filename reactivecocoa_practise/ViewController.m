@@ -73,14 +73,66 @@ typedef NS_ENUM(NSUInteger, SpiritState) {
     
     
     
+    RACSignal *stepsSignal = [[[[[[RACSignal return:startBlock] concat:[stepsSequence.signal scanWithStart:startBlock reduceWithIndex:^id(RACTuple *running, RACTuple *next, NSUInteger index) {
+        return RACTuplePack(@([running.first integerValue] + [next.first integerValue]),@([running.second integerValue] + [next.second integerValue]));
+    }]] collect]  concat:[RACSignal never]] sample:[RACSignal interval:1 onScheduler:[RACScheduler mainThreadScheduler]]] scanWithStart:nil reduceWithIndex:^id(id running, NSArray *steps, NSUInteger index) {
+        SpiritState state = SpiritStateRunning;
+        if (0 == index%steps.count) {
+            state = SpiritStateAppear;
+        }else if (0 == (index+1)%steps.count){
+            state = SpiritStateDisappear;
+        }
+        return RACTuplePack(@(state),steps[index%steps.count]);
+    }];
+
     
     
+    RACSignal *autoClickSignal = [[self.autoRunBtn rac_signalForControlEvents:UIControlEventTouchUpInside] mapReplace:@(YES)];
+    RACSignal *manualClickSignal = [[self.oneStepBtn rac_signalForControlEvents:UIControlEventTouchUpInside] mapReplace:@(NO)];
+
+    typedef NS_ENUM(NSUInteger, GenerateState) {
+        GenerateStateNew =0,
+        GenerateStateStop,
+        GenerateStateIgnore,
+    };
     
-    
-    
-    
-    
-    RACSignal *spiritRunSignal = nil;
+    RACSignal *controlSignal = [[[[autoClickSignal merge:manualClickSignal] scanWithStart:RACTuplePack(nil,nil) reduce:^id(RACTuple *running, id next) {
+        if (!running.first) {
+            return RACTuplePack(@(GenerateStateNew),next);
+        }
+        if ([running.second isEqual:next]) {
+            if ([running.second isEqual:@(YES)] && ([running.first unsignedIntegerValue] != GenerateStateStop)) {
+                return RACTuplePack(@(GenerateStateIgnore),next);
+            }else{
+                return RACTuplePack(@(GenerateStateNew),next);
+            }
+        }else{
+            return RACTuplePack(@(GenerateStateStop),next);
+        }
+    }] filter:^BOOL(RACTuple *value) {
+        if ([value.first isEqual:@(GenerateStateIgnore)]) {
+            return @(NO);
+        }
+        return @(YES);
+    }] map:^id(RACTuple *value) {
+        if ([value.first isEqual:@(GenerateStateNew)]) {
+            if ([value.second isEqual:@(YES)]) {
+                return [[RACSignal interval:1.5 onScheduler:[RACScheduler mainThreadScheduler]] startWith:nil];
+            }else{
+                return [RACSignal return:nil];
+            }
+        }else{
+            return [RACSignal empty];
+        }
+    }];
+    RACSignal *newSpiritSignal = [[[[controlSignal switchToLatest] scanWithStart:nil reduceWithIndex:^id(id running, id next, NSUInteger index) {
+        return @(index);
+    }] take:spiritCount] flattenMap:^RACStream *(id index) {
+        return [stepsSignal map:^id(RACTuple *value) {
+            return RACTuplePack(index,value.first,value.second);
+        }];
+    }];
+    RACSignal *spiritRunSignal = newSpiritSignal;
     @weakify(self)
     [[spiritRunSignal deliverOnMainThread] subscribeNext:^(RACTuple *info) {
         @strongify(self)
@@ -101,7 +153,6 @@ typedef NS_ENUM(NSUInteger, SpiritState) {
                 break;
             case SpiritStateRunning:
             {
-                
                 [UIView animateWithDuration:1 animations:^{
                     updateXYConstraints(spirit, xy);
                 }];
@@ -110,9 +161,9 @@ typedef NS_ENUM(NSUInteger, SpiritState) {
             case SpiritStateDisappear:
             {
                 [UIView animateWithDuration:1 animations:^{
-                    spirit.alpha = 0.0f;
+                    spirit.alpha = 0;
                 } completion:^(BOOL finished) {
-                    [spirit stopAnimating];
+//                    [spirit stopAnimating];
                 }];
                 
             }
