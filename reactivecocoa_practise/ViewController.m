@@ -26,7 +26,11 @@ typedef NS_ENUM(NSUInteger, SpiritState) {
     SpiritStateRunning,
     SpiritStateDisappear,
 };
-
+typedef NS_ENUM(NSUInteger, GenerateState) {
+    GenerateStateStop,
+    GenerateStateAuto,
+    GenerateStateManual,
+};
 @implementation ViewController
 
 - (void)viewDidLoad {
@@ -47,7 +51,25 @@ typedef NS_ENUM(NSUInteger, SpiritState) {
     
     RACTuple *startBlock = RACTuplePack(@1, @2);
     
-    RACSequence *stepsSequence = steps.rac_sequence;
+    RACSequence *stepsSequence = [steps.rac_sequence scanWithStart:startBlock reduce:^id(RACTuple *running, RACTuple *next) {
+        return RACTuplePack(
+                            @([running.first integerValue] + [next.first integerValue]),
+                            @([running.second integerValue] + [next.second integerValue]));
+    }];
+
+    
+    RACSignal *(^StepsFlatten)(NSNumber *) = ^(NSNumber *index){
+        RACSignal *startSignal = [RACSignal return:RACTuplePack(index,@(SpiritStateAppear),startBlock)];
+        RACSignal *runningSignal = [[stepsSequence.signal map:^id(id value) {
+            return [[RACSignal return:RACTuplePack(index,@(SpiritStateRunning),value)] delay:1];
+        }] concat];
+        RACSignal *endSignal = [RACSignal return:RACTuplePack(index,@(SpiritStateDisappear),nil)];
+        return [[startSignal concat:runningSignal] concat:endSignal];
+    };
+    RACSignal *stepsSignal = [[RACSignal return:@(1)] flattenMap:StepsFlatten];
+    [stepsSignal subscribeNext:^(id x) {
+        NSLog(@"%@",x);
+    }];
     
     NSInteger spiritCount = steps.count + 1; // 步数 + 1个起始位置
     
