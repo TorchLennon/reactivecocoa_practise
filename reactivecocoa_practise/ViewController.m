@@ -64,13 +64,9 @@ typedef NS_ENUM(NSUInteger, GenerateState) {
             return [[RACSignal return:RACTuplePack(index,@(SpiritStateRunning),value)] delay:1];
         }] concat];
         RACSignal *endSignal = [RACSignal return:RACTuplePack(index,@(SpiritStateDisappear),nil)];
-        return [[startSignal concat:runningSignal] concat:endSignal];
+        return [RACSignal return:[[startSignal concat:runningSignal] concat:endSignal]] ;
     };
-    RACSignal *stepsSignal = [[RACSignal return:@(1)] flattenMap:StepsFlatten];
-    [stepsSignal subscribeNext:^(id x) {
-        NSLog(@"%@",x);
-    }];
-    
+
     NSInteger spiritCount = steps.count + 1; // 步数 + 1个起始位置
     
     void (^updateXYConstraints)(UIView *view, RACTuple *location) = ^(UIView *view, RACTuple *location) {
@@ -94,15 +90,33 @@ typedef NS_ENUM(NSUInteger, GenerateState) {
     }
     
     
+    RACSignal *manualSignal = [[self.oneStepBtn rac_signalForControlEvents:UIControlEventTouchUpInside] mapReplace:@(GenerateStateManual)];
+    RACSignal *autoSignal = [[self.autoRunBtn rac_signalForControlEvents:UIControlEventTouchUpInside] mapReplace:@(GenerateStateAuto)];
+    RACSignal *generateSignal= [[manualSignal merge:autoSignal] scanWithStart:nil reduce:^id(id running, id next) {
+        if ([running isEqual:next]&&[next unsignedIntegerValue]==GenerateStateAuto) {
+            return @(GenerateStateStop);
+        }else{
+            return next;
+        }
+    }];
     
+    RACSignal *controlSignal= [RACSignal switch:generateSignal cases:@{
+                                             @(GenerateStateAuto):[[RACSignal interval:1.5 onScheduler:[RACScheduler mainThreadScheduler]] startWith:nil],
+                                             @(GenerateStateManual):[RACSignal return:nil]
+                                             } default:[RACSignal empty]];
     
-    
-    
-    
-    
-    
-    
-    RACSignal *spiritRunSignal = nil;
+    RACSignal *indexSignal= [[controlSignal scanWithStart:@-1 reduce:^id(NSNumber *running, id next) {
+        if (!running) {
+            return nil;
+        }
+        NSInteger index= [running integerValue];
+        index++;
+        if (steps.count == index) {
+            nil;
+        }
+        return @(index);
+    }] ignore:nil];
+    RACSignal *spiritRunSignal = [indexSignal flattenMap:StepsFlatten];
     @weakify(self)
     [[spiritRunSignal deliverOnMainThread] subscribeNext:^(RACTuple *info) {
         @strongify(self)
