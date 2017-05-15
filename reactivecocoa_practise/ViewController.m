@@ -35,6 +35,26 @@ void sendAsync()
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
+    
+    RACSignal *signal = [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        NSLog(@"busy");
+        [subscriber sendNext:@1];
+        [subscriber sendNext:@2];
+        [subscriber sendNext:@3];
+        [subscriber sendCompleted];
+        return nil;
+    }];
+    RACSignal *subject = [[signal publish] autoconnect];
+    [subject subscribeNext:^(id x) {
+        NSLog(@"now %@",x);
+    }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [subject subscribeNext:^(id x) {
+            NSLog(@"%@",x);
+        }];
+        
+    });
+    
 //    RACReplaySubject *subject = [RACReplaySubject replaySubjectWithCapacity:2];
 //    [subject subscribeNext:^(id x) {
 //        NSLog(@"%@",x);
@@ -57,7 +77,7 @@ void sendAsync()
 //        NSLog(@"%@",x);
 //    }];
 
-    sendAsync();
+//    sendAsync();
 
 }
 
